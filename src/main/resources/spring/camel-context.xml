@@ -41,7 +41,7 @@
             </get>
             <get id="getMeter" uri="/meters/{meterId}">
                 <description>Gets the details of a single instance of a `Meter`.</description>
-                <to uri="direct:getMeter"/>
+               <to uri="direct:getMeter"/>
             </get>
             <get id="getJunctions" uri="/junctions">
                 <description>Gets a list of all `Junction` entities.</description>
@@ -51,6 +51,27 @@
                 <description>Gets the details of a single instance of a `Junction`.</description>
                 <to uri="direct:getJunction"/>
             </get>
+
+            <!-- realtime -->
+            <get id="getRealtimeParkingMeters" uri="/realtime/parking/meters">
+                <description>Get realtime information for parking meteres. status query parameter to filter based on status is optional</description>
+                <param dataType="string" description="Filter results based on status" name="status" required="false" type="query" />
+                <to uri="direct:getRealtimeParkingMeters"/>
+            </get>
+            <get id="getREaltimeParkingMeterById" uri="/realtime/parking/meters/{meterId}">
+                <description>Should return the latest live information for the given parking meter-id</description>
+                <param dataType="integer" description="meter ID to find" name="meterId" required="true" type="path"/>
+                <to uri="direct:getREaltimeParkingMeterById"/>
+            </get>
+            <get id="getRealtimeInfoForAllJunctions" uri="/realtime/traffic/junctions">
+                <description>Get realtime information for all junctions</description>
+                <to uri="direct:getRealtimeInfoForAllJunctions"/>
+            </get>
+            <get id="getRealTimeINfoForJunctionById" uri="/realtime/traffic/junctions/{junctionId}">
+                <description>Get Realtime information for specific junction</description>
+                <param dataType="integer" description="junctionId" name="junctionId" required="true" type="path"/>
+                <to uri="direct:getRealTimeINfoForJunctionById"/>
+            </get>            
         </rest>
 
         <route id="route-2197c95d-cef2-451e-b387-801d06a371c3">
@@ -59,16 +80,54 @@
         </route>
         <route id="route-9a3601f8-d21a-4e75-955f-9f7130029c15">
             <from id="from-7b9ccd40-8f95-481f-8d4a-18353ffb1132" uri="direct:getMeter"/>
-            <to id="to-4d6ad8be-5253-4a88-8e35-61a10b58fd4a" uri="direct:501"/>
+            <log message="getting meter id ${header.meterId}"/>            
+            <to id="to-4d6ad8be-5253-4a88-8e35-61a10b58fd4a" uri="sql:select * from meter_info where id::varchar=:#${header.meterId}?dataSource=dataSource"/>
         </route>
         <route id="route-9aa5ec86-3650-4f26-bfe4-9b416b5a81b0">
             <from id="from-c0d38133-cbe3-468a-86c3-f9b18e8da4f2" uri="direct:getJunctions"/>
-            <to id="to-cf51214a-a45c-4446-88bc-7c70076b0e8c" uri="direct:501"/>
+            <to id="to-cf51214a-a45c-4446-88bc-7c70076b0e8c" uri="sql:select * from junction_info?dataSource=dataSource"/>
         </route>
         <route id="route-149b46f6-32f6-4294-ad7b-586b2f45c0c0">
             <from id="from-02c53535-b28f-447b-b487-3e6b0dc02adb" uri="direct:getJunction"/>
-            <to id="to-e655e952-7f44-4e24-aeef-05ab49ade471" uri="direct:501"/>
+            <to id="to-e655e952-7f44-4e24-aeef-05ab49ade471" uri="sql:select * from junction_info where id::varchar=:#${header.junctionId}?dataSource=dataSource"/>
         </route>
+
+        <!--realtime routes -->
+                    <!-- should we be doing HAVING MAX (timestamp) for these -->
+        <route id="route-0ae6e500-cd68-4eec-b474-6945c97cd1af">
+            <from id="from-4a85a491-d24f-453c-8fed-1237fa05fd82" uri="direct:getRealtimeParkingMeters"/>
+            <log message="body is ${body}, status is ${header.status}" />
+            <!-- use CBR for choices -->
+            <choice>
+               <!--   Just playing around with simple expression language 
+                <when> 
+                    <simple> ${header.status} in 'available,occupied,unknown,out-of-service' </simple> 
+                    <to id="to-342cb562-7743-4a43-aa17-a01b2faf867e" uri="sql:select * from meter_status_evals01 where status_text=:#status ?dataSource=dataSource"/>
+                </when> 
+                 -->               
+              <when> 
+                  <!-- search on status if available regardless of what was provided as long as it's not blank -->
+                    <simple> ${header.status} != null and ${header.status.length} > 0</simple> 
+                    <to id="to-342cb562-7743-4a43-aa17-a01b2faf867e" uri="sql:select * from meter_status_evals01 where status_text=:#status ?dataSource=dataSource"/>
+                </when>
+                <otherwise>
+                    <to id="to-342cb562-7743-4a43-aa17-a01b2faf867f" uri="sql:select * from meter_status_evals01 ?dataSource=dataSource"/>
+                </otherwise>
+            </choice>
+   
+        </route>
+        <route id="route-1d7ae899-5dfc-44d0-ae28-62463e2a372f">
+            <from id="from-314ca17b-8ea2-434a-8e29-bceed801a637" uri="direct:getREaltimeParkingMeterById"/>
+            <to id="to-4ad88934-5622-451d-8634-03765b46dd8f" uri="sql:select * from meter_status_evals01 where meter_id::varchar=:#${header.meterId} order by timestamp desc ?dataSource=dataSource"/>
+        </route>
+        <route id="route-25ac78bc-69b9-4906-92af-d6e370e13ed3">
+            <from id="from-5cc295d5-3455-45c0-8d00-8446862975d1" uri="direct:getRealtimeInfoForAllJunctions"/>
+            <to id="to-5bdb7381-cdf1-4704-8e83-a9251ad43070" uri="sql:select * from junction_status_evals01?dataSource=dataSource"/>
+        </route>
+        <route id="route-1bd58daa-5a14-4125-972e-b386119bdd6c">
+            <from id="from-1e249cee-edb7-4e3b-be0c-fa7aa8a22597" uri="direct:getRealTimeINfoForJunctionById"/>
+            <to id="to-364d954e-dddc-42b1-b2be-8c2ac611b500" uri="sql:select * from junction_status_evals01 where junction_id::varchar=:#${header.junctionId} order by timestamp desc  ?dataSource=dataSource"/>
+        </route>            
 
         <route id="route-for-unimplemented-operations">
             <from id="from-for-unimplemented-operations-route" uri="direct:501"/>
